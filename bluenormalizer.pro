@@ -17,7 +17,7 @@
 ;;Output:
 ;;      None
 ;;Author and history:
-;;      Daniel Hatcher, 2018
+;;      Daniel Hatcher, 2019
 ;;Notes:
 ;;      For flat list, expect one date formatted YYYY-MM-DD and
 ;;      one 5-digit frame number per line
@@ -60,9 +60,9 @@ END
 ;;Keyword parameters:
 ;;      None
 ;;Output:
-;;      flat    :   string frame number of length 5
+;;      flatFrame    :   string frame number of length 5
 ;;Author and history:
-;;      Daniel Hatcher, 2018
+;;      Daniel Hatcher, 2019
 ;;Notes:
 ;;      Expect one date formatted YYYY-MM-DD and one 5-digit
 ;;      frame number per line
@@ -132,7 +132,7 @@ END
 ;;Output:
 ;;      output  :   1D smoothed array of same length as input
 ;;Author and history:
-;;      Daniel Hatcher, 2018
+;;      Daniel Hatcher, 2019
 ;;-
 
 FUNCTION filter, inputArray, inputWidth, TYPE=type
@@ -199,13 +199,13 @@ END
 ;;Output:
 ;;      output  :   structure with tags:
 ;;          flux        :   512xc raw flat data
-;;          smoothflux  :   512xc smoothed flux
+;;          smoothFlux  :   512xc smoothed flux
 ;;          meanNormFlux    :   512xc mean normalized flux
 ;;          meanNormSmoothFlux  :   512xc mean normalized, smoothed flux
 ;;              (c = 16 for new CCD, 20 for old CCD)
 ;;          width   :   width of smoothing window
 ;;Author and history:
-;;      Daniel Hatcher, 2018
+;;      Daniel Hatcher, 2019
 ;;-
 
 FUNCTION readflat, inputFrame
@@ -268,7 +268,7 @@ ENDFOR
 ;;Output
 output = {readflatOutput, $
     flux    :   flatData, $
-    smoothflux  :   smoothFlux, $
+    smoothFlux  :   smoothFlux, $
     meanNormFlux    :   meanNormFlux, $
     meanNormSmoothFlux  :   meanNormSmoothFlux, $
     width   :   smoothWidth}
@@ -298,7 +298,7 @@ END
 ;;      INF     :   Influence of signal on mean and standard deviation
 ;;                  If 0, excluded from moving average
 ;;                  If 1, included
-;;      SCREEN  :   Screen output flag, 1 is on
+;;      SCREEN  :   Screen output flag, 1 is on (optional)
 ;;Output:
 ;;      output  :   structure with tags:
 ;;          signals :   array of signals, same length as input
@@ -306,10 +306,12 @@ END
 ;;          lower   :   array of threshold lower limit, same length as input
 ;;          avg     :   array of moving average, same length as input
 ;;Author and history:
-;;      Jean-Paul van Brakel, 2014  :   Algorithm construction
+;;      Daniel Hatcher, 2019
+;;References:
+;;      Jean-Paul van Brakel, 2014
 ;;      https://stackoverflow.com/questions/22583391/
 ;;      peak-signal-detection-in-realtime-timeseries-data
-;;      Daniel Hatcher, 2018    :   IDL implementation
+;;      
 ;;-
 
 FUNCTION zscorepeaks,inputData,LAG=inputLag,T=inputT,INF=inputInf, $
@@ -402,6 +404,7 @@ IF KEYWORD_SET(inputScreen) THEN BEGIN
         OPLOT, upper
         OPLOT, lower
         PLOT, signals, title = 'Signals', yrange=[-1.5,1.5]
+        !P.MULTI = 0
     ENDIF
 ENDIF
 
@@ -429,7 +432,7 @@ END
 ;;Calling sequence:
 ;;      Result = centroid(inputFlux)
 ;;Positional parameters:
-;;      inputFlux   :   1D array of floats
+;;      inputFlux   :   1D array of continuum normalized flux values
 ;;Keyword parameters:
 ;;      None
 ;;Output:
@@ -512,10 +515,10 @@ END
 ;;      Result = contnorm(wave,flux,index[,FRAME=string][,WIDTH=integer]
 ;;      [,SCREEN=binary][,PASS1WIDTH=integer])
 ;;Positional parameters:
-;;      wave    :   512x1 array of wavelengths
-;;      flux    :   512x1 array of flat-divided flux values
+;;      wave    :   1D array of wavelengths
+;;      flux    :   1D array of flat-divided flux values
 ;;      index   :   index of wave array nearest to lab wavelength
-;;                  of region of interest
+;;                  of feature of interest
 ;;Keyword parameters:
 ;;      FRAME   :   string frame number (for plotting)
 ;;      WIDTH   :   Feature width, dynamic if not provided
@@ -523,14 +526,15 @@ END
 ;;      PASS1WIDTH  :   Width of first median boxcar (optional)
 ;;Output:
 ;;      output  :   structure with tags:
-;;          continuum   :   512x1 estimate of the continuum
-;;          spectrum    :   512x1 input flux divided by continuum
+;;          continuum   :   1D estimate of the continuum
+;;          spectrum    :   1D input flux divided by continuum
 ;;          width       :   integer width of the feature patch
 ;;          patch       :   array of patched pixels
 ;;          notpatch    :   array of pixels not part of the patch
 ;;Author and history:
-;;      C.A.L. Bailer-Jones et al., 1998    :  Filtering algorithm
-;;      Daniel Hatcher, 2018    :   IDL implementation
+;;      Daniel Hatcher, 2019
+;;References:
+;;      Bailer-Jones C., Irwin M., von Hippel T., 1998, MNRAS, 298, 1061
 ;;-
 
 FUNCTION contnorm, wave, flux, index, FRAME=frame, WIDTH=inputWidth, $
@@ -578,26 +582,24 @@ IF NOT KEYWORD_SET(inputWidth) THEN BEGIN
     ;;Search red (right) side
     rightResult = zscorepeaks(flux[rightSearch],LAG=5,T=1.5,INF=0.1)
 
-    ;;Find first position of last signal (blue side)
-    FOR i = N_ELEMENTS(leftSearch)-1,0,-1 DO BEGIN
-        lastValue = leftResult.signals[-1]
-        IF leftResult.signals[i] NE lastValue THEN BEGIN
-            leftShoulder = leftSearch[i]
-            BREAK
-        ENDIF
-    ENDFOR
+    ;;Find position of last zero signal on left
+    lastLeft = -1
+    lastLeftPixel = leftSearch[lastLeft]
+    WHILE leftResult.signals[lastLeft] NE 0 DO BEGIN
+        lastLeft = lastLeft - 1
+        lastLeftPixel = leftSearch[lastLeft]
+    ENDWHILE
 
-   ;;Find first position of last signal (red side)
-    FOR i = N_ELEMENTS(rightSearch)-1,0,-1 DO BEGIN
-        lastValue = rightResult.signals[-1]
-        IF rightResult.signals[i] NE lastValue THEN BEGIN
-            rightShoulder = rightSearch[i]
-            BREAK
-        ENDIF
-    ENDFOR
+    ;;Find position of last zero signal on right
+    lastRight = -1
+    lastRightPixel = rightSearch[lastRight]
+    WHILE rightResult.signals[lastRight] NE 0 DO BEGIN
+        lastRight = lastRight - 1
+        lastRightPixel = rightSearch[lastRight]
+    ENDWHILE
 
     ;;Choose largest width
-    width = MAX([(rightShoulder-index),(index-leftShoulder)])
+    width = MAX([(lastRightPixel-index),(index-lastLeftPixel)])
 ENDIF ELSE BEGIN
     ;;If specified, use input width
     width = inputWidth
@@ -695,6 +697,7 @@ IF KEYWORD_SET(inputScreen) THEN BEGIN
         OPLOT, [wave[0],wave[-1]],[1.02,1.02],LINESTYLE=2
         OPLOT, [wave[0],wave[-1]],[0.97,0.97]
         OPLOT, [wave[0],wave[-1]],[1.03,1.03]
+        !P.MULTI = 0
     ENDIF
 ENDIF
 
@@ -729,11 +732,11 @@ END
 ;;      right   :   array of pixels right of wing
 ;;      frame   :   string frame number (for plotting)
 ;;Keyword parameters:
-;;      SCREEN  :   Screen output flag, 1 is on
+;;      SCREEN  :   Screen output flag, (optional, 1 is on)
 ;;Output:
-;;      Postscript file
+;;      None
 ;;Author and history:
-;;      Daniel Hatcher, 2018
+;;      Daniel Hatcher, 2019
 ;;-
 
 PRO wingcompare, flux, centroid, left, right, frame, SCREEN=inputScreen
@@ -802,6 +805,7 @@ IF KEYWORD_SET(inputScreen) THEN BEGIN
             xtitle='Distance from centroid'
         OPLOT, [MIN(rsLeft),MAX(rsLeft)], [tot,tot], LINESTYLE=2
         XYOUTS, 50,0.5*tot,STRTRIM(STRING(tot),2)
+        !P.MULTI = 0
     ENDIF
 ENDIF
 
@@ -823,25 +827,25 @@ END
 ;;      [,DIAGSCREEN=binary][,OUTFILE=string][,FLATDIV=binary]
 ;;      [,FLATFRAME=string][,TEXTPATH=string])
 ;;Positional parameters:
-;;      inputFlux   :   512x16 array of floats
-;;      inputWave   :   512x16 array of floats
+;;      inputFlux   :   512x16 or 512x20 array of floats
+;;      inputWave   :   512x16 or 512x20 array of floats
 ;;      inputDate   :   Date fromatted as YYYY-MM-DD
 ;;      inputFrame  :   string frame number of length 5 (for plotting)
 ;;      inputName   :   string object name (HD number)
-;;Optional parameters (keywords):
+;;Keyword parameters:
 ;;      WIDTH       :   width of feature (integer or 2-element array)
 ;;      NORMSCREEN  :   binary output flag for normalization plots, 1 is on
 ;;      DIAGSCREEN  :   binary output flag for diagnostic plots, 1 is on
-;;      OUTFILE     :   path to output file (PostScript)
+;;      OUTFILE     :   path to output plot file
 ;;      FLATDIV     :   binary flat division flag, 1 is on
 ;;      FLATFRAME   :   string frame number of length 5
 ;;      TEXTPATH    :   path to output text file
 ;;Output:
 ;;      output      :   continuum normalized spectrum (512 float array)
-;;      Postscript file of normalization and diagnostic plots
+;;      Postscript file of normalization and diagnostic plots (optional)
 ;;      ASCII file of wavelengths and normalized flux values
 ;;Author and history:
-;;      Daniel Hatcher, 2018
+;;      Daniel Hatcher, 2019
 ;;-
 
 FUNCTION bluenormalizer,inputFlux,inputWave,inputDate,inputFrame,inputName,$
@@ -856,130 +860,144 @@ IF NOT STRCMP(!VERSION.RELEASE,'8.7.0') THEN BEGIN
     PRINT, 'Warning: ' + STRING(10B) + 'Written with IDL version 8.7.0' 
 ENDIF
 
-;;Define system variables
-preferences
-
 ;;Zero indexed order
 order = 0
 
-;;Select order
-flux = inputFlux[*,order]
-wave = inputWave[*,order]
+;;Was a ThAr frame given?
+IF STREGEX(inputName,"ThAr",/BOOLEAN) THEN BEGIN
+    PRINT, 'ThAr frame detected!'
+    PRINT, 'Frame ' + inputFrame +$
+        ' will be converted to text without processing!'+STRING(10B)
 
-;;If no flat division requested, assume division was done in 2D
-IF NOT KEYWORD_SET(inputFlatDiv) THEN BEGIN
-    flatDiv = flux
-ENDIF ELSE IF inputFlatDiv EQ 1 THEN BEGIN
-    ;;If flat division requested, but no frame provided, locate flat from list
-    IF NOT KEYWORD_SET(inputFlatFrame) THEN BEGIN
-        flat = readflat(locateflat(inputDate))
-    ENDIF ELSE BEGIN
-        flat = readflat(inputFlatFrame)
-    ENDELSE
-    ;;Flat division
-    flatDiv = flux / flat.meanNormFlux[*,order]
-ENDIF
+    wave = inputWave[*,order]
+    outputFlux = inputFlux[*,order]
 
-;;To deal with each feature separately, break spectrum in two
-leftBreak = 180
-rightBreak = 300
-
-;;Include some middle region to avoid edge truncation at break points
-pass1Width = 30
-leftPixelsPlus = LINDGEN(leftBreak+pass1Width)
-rightPixelsPlus = LINDGEN(512-(rightBreak-pass1Width),$
-    START=rightBreak-pass1Width)
-leftFlux = flatDiv[leftPixelsPlus]
-rightFlux = flatDiv[rightPixelsPlus]
-leftWave = wave[leftPixelsPlus]
-rightWave = wave[rightPixelsPlus]
-
-;;H8 lab frame wavelength
-H8 = 388.81
-
-;;Hepsilon lab frame wavelength
-He = 396.91
-
-;;Find index closest to wavelengths
-distanceH8 = ABS(leftWave-H8)
-minDistanceH8 = MIN(distanceH8,indexH8)
-distanceHe = ABS(rightWave-He)
-minDistanceHe = MIN(distanceHe,indexHe) 
-
-;;Create output file if provided and turn on screens
-IF KEYWORD_SET(outFile) THEN BEGIN
-    SET_PLOT, 'ps'
-    DEVICE, /COLOR, BITS_PER_PIXEL=8
-    DEVICE, XSIZE=7, YSIZE=10, XOFFSET=0.5, YOFFSET=0.5, /INCHES
-    DEVICE, FILENAME = outFile 
-    normScreen = 1
-    diagScreen = 1
-ENDIF
-
-;;Set keyword default values if not provided
-IF NOT KEYWORD_SET(normScreen) THEN BEGIN
-    normScreen = 0
-ENDIF
-
-;;Continuum normalizaton with provided width(s)
-IF KEYWORD_SET(inputWidth) THEN BEGIN
-    numWidths = N_ELEMENTS(inputWidth)
-    ;;One width?
-    IF numWidths EQ 1 THEN BEGIN
-        normalizedLeft = contnorm(leftWave,leftFlux,indexH8,FRAME=inputFrame,$
-            WIDTH=inputWidth,SCREEN=normScreen,PASS1WIDTH=pass1Width)
-        normalizedRight = contnorm(rightWave,rightFlux,indexHe,$
-            FRAME=inputFrame,WIDTH=inputWidth,SCREEN=normScreen,$
-            PASS1WIDTH=pass1Width)
-    ;;Two widths?
-    ENDIF ELSE IF numWidths EQ 2 THEN BEGIN
-        ;;Array element 0 is H8 width
-        normalizedLeft = contnorm(leftWave,leftFlux,indexH8,FRAME=inputFrame,$
-            WIDTH=inputWidth[0],SCREEN=normScreen,PASS1WIDTH=pass1Width)
-        ;;Array element 1 is He width
-        normalizedRight = contnorm(rightWave,rightFlux,indexHe,$
-            FRAME=inputFrame,WIDTH=inputWidth[1],SCREEN=normScreen,$
-            PASS1WIDTH=pass1Width)
-    ENDIF ELSE BEGIN
-        MESSAGE, "Width must be intger or 2-element array of integers!"
-    ENDELSE
-;;Continuum normalization with dynamic width
 ENDIF ELSE BEGIN
-    normalizedLeft = contnorm(leftWave,leftFlux,indexH8,FRAME=inputFrame,$
-        SCREEN=normScreen,PASS1WIDTH=pass1Width)
-    normalizedRight = contnorm(rightWave,rightFlux,indexHe,FRAME=inputFrame,$
-        SCREEN=normScreen,PASS1WIDTH=pass1Width)
+    ;;Define system variables
+    preferences
+
+    ;;Select order
+    flux = inputFlux[*,order]
+    wave = inputWave[*,order]
+
+    ;;If no flat division requested, assume division was done in 2D
+    IF NOT KEYWORD_SET(inputFlatDiv) THEN BEGIN
+        flatDiv = flux
+    ENDIF ELSE IF inputFlatDiv EQ 1 THEN BEGIN
+        ;;If flat division requested, but no frame provided, locate flat 
+        IF NOT KEYWORD_SET(inputFlatFrame) THEN BEGIN
+            flat = readflat(locateflat(inputDate))
+        ENDIF ELSE BEGIN
+            flat = readflat(inputFlatFrame)
+        ENDELSE
+        ;;Flat division
+        flatDiv = flux / flat.meanNormFlux[*,order]
+    ENDIF
+
+    ;;To deal with each feature separately, break spectrum in two
+    leftBreak = 180
+    rightBreak = 300
+
+    ;;Include some middle region to avoid edge truncation at break points
+    pass1Width = 30
+    leftPixelsPlus = LINDGEN(leftBreak+pass1Width)
+    rightPixelsPlus = LINDGEN(512-(rightBreak-pass1Width),$
+        START=rightBreak-pass1Width)
+    leftFlux = flatDiv[leftPixelsPlus]
+    rightFlux = flatDiv[rightPixelsPlus]
+    leftWave = wave[leftPixelsPlus]
+    rightWave = wave[rightPixelsPlus]
+
+    ;;H8 lab frame wavelength
+    H8 = 388.81
+
+    ;;Hepsilon lab frame wavelength
+    He = 396.91
+
+    ;;Find index closest to wavelengths
+    distanceH8 = ABS(leftWave-H8)
+    minDistanceH8 = MIN(distanceH8,indexH8)
+    distanceHe = ABS(rightWave-He)
+    minDistanceHe = MIN(distanceHe,indexHe) 
+
+    ;;Create output file if provided and turn on screens
+    IF KEYWORD_SET(outFile) THEN BEGIN
+        SET_PLOT, 'ps'
+        DEVICE, /COLOR, BITS_PER_PIXEL=8
+        DEVICE, XSIZE=7, YSIZE=10, XOFFSET=0.5, YOFFSET=0.5, /INCHES
+        DEVICE, FILENAME = outFile 
+        normScreen = 1
+        diagScreen = 1
+    ENDIF
+
+    ;;Set screen default values if not provided
+    IF NOT KEYWORD_SET(normScreen) THEN BEGIN
+        normScreen = 0
+    ENDIF
+
+    ;;Continuum normalizaton with provided width(s)
+    IF KEYWORD_SET(inputWidth) THEN BEGIN
+        numWidths = N_ELEMENTS(inputWidth)
+        ;;One width?
+        IF numWidths EQ 1 THEN BEGIN
+            normalizedLeft = contnorm(leftWave,leftFlux,indexH8,$
+                FRAME=inputFrame,WIDTH=inputWidth,SCREEN=normScreen,$
+                PASS1WIDTH=pass1Width)
+            normalizedRight = contnorm(rightWave,rightFlux,indexHe,$
+                FRAME=inputFrame,WIDTH=inputWidth,SCREEN=normScreen,$
+                PASS1WIDTH=pass1Width)
+        ;;Two widths?
+        ENDIF ELSE IF numWidths EQ 2 THEN BEGIN
+            ;;Array element 0 is H8 width
+            normalizedLeft = contnorm(leftWave,leftFlux,indexH8,$
+                FRAME=inputFrame,WIDTH=inputWidth[0],SCREEN=normScreen,$
+                PASS1WIDTH=pass1Width)
+            ;;Array element 1 is He width
+            normalizedRight = contnorm(rightWave,rightFlux,indexHe,$
+                FRAME=inputFrame,WIDTH=inputWidth[1],SCREEN=normScreen,$
+                PASS1WIDTH=pass1Width)
+        ENDIF ELSE BEGIN
+            MESSAGE, "Width must be intger or 2-element array of integers!"
+        ENDELSE
+    ;;Continuum normalization with dynamic width
+    ENDIF ELSE BEGIN
+        normalizedLeft = contnorm(leftWave,leftFlux,indexH8,FRAME=inputFrame,$
+            SCREEN=normScreen,PASS1WIDTH=pass1Width)
+        normalizedRight = contnorm(rightWave,rightFlux,indexHe,$
+            FRAME=inputFrame,SCREEN=normScreen,PASS1WIDTH=pass1Width)
+    ENDELSE
+
+    ;;Define regions used to subset contnorm output
+    leftPixels = LINDGEN(leftBreak)
+    middlePixels = LINDGEN(rightBreak-leftBreak,START=leftBreak)
+    rightPixels = LINDGEN(512-rightBreak,START=pass1Width)
+
+    ;;If diagnostic plots requested
+    IF KEYWORD_SET(diagScreen) THEN BEGIN
+        cLeft = centroid(normalizedLeft.spectrum[leftPixels])
+        cRight = centroid(normalizedRight.spectrum[rightPixels])
+        wingcompare,normalizedLeft.spectrum[leftPixels],cLeft.centroid,$
+            cLeft.left,cLeft.right,inputFrame+' H8',SCREEN=1
+        wingcompare,normalizedRight.spectrum[rightPixels],cRight.centroid,$
+            cRight.left,cRight.right,inputFrame+' He',SCREEN=1
+    ENDIF
+
+    ;;Close output file
+    IF KEYWORD_SET(outFile) THEN BEGIN
+        DEVICE, /CLOSE_FILE
+    ENDIF
+
+    ;;Linear regression across middle region
+    middleSlope = REGRESS([leftPixelsPlus[leftBreak],$
+        rightPixelsPlus[pass1Width]],$
+        [normalizedLeft.continuum[-pass1Width],$
+        normalizedRight.continuum[pass1Width]],CONST=const)
+    middleCont = middlePixels*middleSlope[0] + const
+    middleSpectrum = flatDiv[middlePixels]/middleCont
+
+    outputFlux = [normalizedLeft.spectrum[leftPixels],middleSpectrum,$
+        normalizedRight.spectrum[rightPixels]]
 ENDELSE
-
-;;Define regions used to subset contnorm output
-leftPixels = LINDGEN(leftBreak)
-middlePixels = LINDGEN(rightBreak-leftBreak,START=leftBreak)
-rightPixels = LINDGEN(512-rightBreak,START=pass1Width)
-
-;;If diagnostic plots requested
-IF KEYWORD_SET(diagScreen) THEN BEGIN
-    cLeft = centroid(normalizedLeft.spectrum[leftPixels])
-    cRight = centroid(normalizedRight.spectrum[rightPixels])
-    wingcompare,normalizedLeft.spectrum[leftPixels],cLeft.centroid,cLeft.left,$
-        cLeft.right,inputFrame+' H8',SCREEN=1
-    wingcompare,normalizedRight.spectrum[rightPixels],cRight.centroid,$
-        cRight.left,cRight.right,inputFrame+' He',SCREEN=1
-ENDIF
-
-;;Close output file
-IF KEYWORD_SET(outFile) THEN BEGIN
-    DEVICE, /CLOSE_FILE
-ENDIF
-
-;;Interpolate across middle region
-middleSlope = REGRESS([leftPixelsPlus[leftBreak],rightPixelsPlus[pass1Width]],$
-    [normalizedLeft.continuum[-pass1Width],$
-    normalizedRight.continuum[pass1Width]],CONST=const)
-middleCont = middlePixels*middleSlope[0] + const
-middleSpectrum = flatDiv[middlePixels]/middleCont
-
-output = [normalizedLeft.spectrum[leftPixels],middleSpectrum,$
-    normalizedRight.spectrum[rightPixels]]
 
 ;;Was a text file path given?
 IF NOT KEYWORD_SET(textPath) THEN BEGIN
@@ -991,8 +1009,6 @@ IF NOT KEYWORD_SET(textPath) THEN BEGIN
     ENDIF
     ;;Default text file path
     textPath = defaultDir+"normalized"+inputFrame.Compress()+".txt"
-    ;;Print text file location
-    PRINT, "Text files in: " + defaultDir
 ENDIF ELSE BEGIN
     textPath = textPath+"normalized"+inputFrame.Compress()+".txt"
 ENDELSE
@@ -1011,13 +1027,13 @@ OPENW, logicalUnitNumber, textPath, /GET_LUN
 ;;Write to text file
 PRINTF, logicalUnitNumber, header
 FOR i = 0,N_ELEMENTS(wave)-1 DO BEGIN
-    PRINTF, logicalUnitNumber, wave[i], output[i],FORMAT="(F11.6,F11.6)"
+    PRINTF, logicalUnitNumber, wave[i], outputFlux[i],FORMAT="(F11.6,F11.6)"
 ENDFOR
 
 ;;Close text file
 CLOSE, logicalUnitNumber
 FREE_LUN, logicalUnitNumber
 
-RETURN, output
+RETURN, outputFlux
 
 END
